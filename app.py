@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 import os
 import io
-import requests  # Import the requests library
+import requests
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
@@ -14,6 +14,7 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
 def save_image(image, filename):
+    """Save image in the appropriate format based on its mode."""
     if image.mode == 'RGBA':
         filename = os.path.splitext(filename)[0] + '.png'
         path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -24,8 +25,9 @@ def save_image(image, filename):
     return filename
 
 def image_filter(image, filter_type):
+    """Apply various filters to the image using OpenCV."""
     image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    
+
     if filter_type == 'CONTOUR':
         gray = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 100, 200)
@@ -62,7 +64,8 @@ def image_filter(image, filter_type):
     return image_pil
 
 def remove_background(image, api_key, bg_color=None, no_bg_color=False):
-    # Save the image to a temporary file to send to the API
+    """Remove background from the image using the remove.bg API."""
+    # Save the image to a temporary file
     temp_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'temp_image.png')
     image.save(temp_image_path, format='PNG')
 
@@ -75,38 +78,48 @@ def remove_background(image, api_key, bg_color=None, no_bg_color=False):
             headers={'X-Api-Key': api_key}
         )
     
+    # Handle the response from the API
     if response.status_code == requests.codes.ok:
         result_image = Image.open(io.BytesIO(response.content))
         
+        # Apply background color if specified and if not opting for no background
         if bg_color and not no_bg_color:
             if result_image.mode in ('RGBA', 'LA') or (result_image.mode == 'P' and 'transparency' in result_image.info):
                 background = Image.new('RGBA', result_image.size, bg_color)
                 result_image = Image.alpha_composite(background, result_image)
                 result_image = result_image.convert("RGB")
 
+        # Clean up temporary file
+        os.remove(temp_image_path)
         return result_image
     else:
         print("Error:", response.status_code, response.text)
+        # Clean up temporary file
+        os.remove(temp_image_path)
         return image  # Return the original image if API call fails
 
 def image_enhance(image, enhancement_type, factor):
-    enhancer = None
+    """Enhance image based on brightness, contrast, or sharpness."""
+    try:
+        factor = float(factor)  # Ensure factor is a float
+        if enhancement_type == 'BRIGHTNESS':
+            enhancer = ImageEnhance.Brightness(image)
+        elif enhancement_type == 'CONTRAST':
+            enhancer = ImageEnhance.Contrast(image)
+        elif enhancement_type == 'SHARPNESS':
+            enhancer = ImageEnhance.Sharpness(image)
+        else:
+            return image  # No enhancement applied if type is invalid
 
-    if enhancement_type == 'BRIGHTNESS':
-        enhancer = ImageEnhance.Brightness(image)
-    elif enhancement_type == 'CONTRAST':
-        enhancer = ImageEnhance.Contrast(image)
-    elif enhancement_type == 'SHARPNESS':
-        enhancer = ImageEnhance.Sharpness(image)
-
-    if enhancer is not None:
         enhanced_image = enhancer.enhance(factor)
         return enhanced_image
-    else:
-        return image
+    except Exception as e:
+        print("Enhancement error:", e)
+        return image  # Return the original image if enhancement fails
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    """Render the index page and handle image processing requests."""
     if request.method == 'POST':
         file = request.files['image']
         operation = request.form.get('operation')
@@ -122,7 +135,7 @@ def index():
         elif operation == 'remove_bg':
             bg_color = request.form.get('bg_color', None)
             no_bg_color = 'no_bg_color' in request.form  # Check if "None" option is selected
-            api_key = 'sLKdH8N4JtmF6FLwgfgfpmMD'  # Replace with your remove.bg API key
+            api_key = 'DkHMdyHN9tMgo1eboB122BcS'  # Replace with your remove.bg API key
             processed_image = remove_background(image, api_key, bg_color, no_bg_color)
 
         elif operation == 'enhance':
@@ -142,6 +155,7 @@ def index():
 
 @app.route('/download/<filename>')
 def download_file(filename):
+    """Handle the download of processed images."""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
 
 if __name__ == '__main__':
